@@ -1,0 +1,13 @@
+[package]
+name = "bounce"
+version = "0.0.1"
+authors = ["owen <owen@oms.sh>"]
+license = "AGPL"
+
+[dependencies]
+bytes = "0.4.2"
+futures = "0.1.13"
+tokio-io = "0.1.1"
+tokio-proto = "0.1.1"
+tokio-service = "0.1"
+
