@@ -6,7 +6,8 @@ use bytes::{BytesMut, BufMut};
 
 #[derive(Debug)]
 pub enum Command {
-    Tmp,
+    Num(u16),
+    Str(String),
 }
 
 #[derive(Debug)]
@@ -28,6 +29,9 @@ pub struct LineCodec;
 impl Decoder for LineCodec {
     type Item = Line;
     type Error = io::Error;
+
+    // handle case of sending text without newlines?
+    // discard everything more than 512 bytes before a newline?
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Line>, io::Error> {
         if let Some(i) = buf.iter().position(|&b| b == b'\n') {

@@ -100,6 +100,14 @@ fn main() {
 */
 
 
+/* a bouncer should be capable of:
+ *  independently connecting to an irc server and joining channels
+ *  logging everything it sees
+ *  echoing what it sees to a user if they're connected
+ *  handling errors (should not crash)
+ *  send / receive messages
+ */
+
 extern crate futures;
 extern crate tokio_proto;
 extern crate tokio_service;
@@ -121,15 +129,18 @@ use tokio_io::{AsyncRead, AsyncWrite};
 
 //mod irc; 
 
-mod responses;
 mod codec;
 use codec::*;
 
+/*
+//mod responses;
 pub enum Response {
     Command(responses::CmdRsp),
     Error(  responses::ErrRsp),
     Misc(   responses::MscRsp),
+    Unknown,
 }
+*/
 
 /*
 #[derive(Debug)]
