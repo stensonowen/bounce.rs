@@ -106,36 +106,62 @@ extern crate tokio_service;
 extern crate tokio_io;
 extern crate bytes;
 
-use std::str;
-use std::io::{self, ErrorKind, Write};
+use std::io;
 
 use futures::{future, Future, BoxFuture};
 use tokio_proto::TcpServer;
 use tokio_proto::pipeline::ServerProto;
 use tokio_service::Service;
-use tokio_io::codec::{Encoder, Decoder};
 use tokio_io::codec::Framed;
 use tokio_io::{AsyncRead, AsyncWrite};
-use bytes::{BytesMut, BufMut};
 
 // First, we implement a *codec*, which provides a way of encoding and
 // decoding messages for the protocol. See the documentation for `Codec` in
 // `tokio-core` for more details on how that works.
 
-mod irc; 
-/*
-pub enum Command {
+//mod irc; 
 
+mod responses;
+mod codec;
+use codec::*;
+
+pub enum Response {
+    Command(responses::CmdRsp),
+    Error(  responses::ErrRsp),
+    Misc(   responses::MscRsp),
+}
+
+/*
+#[derive(Debug)]
+pub enum Command {
+    Tmp,
 }
 
 #[derive(Debug)]
-pub struct LineCodec {
+pub struct Line {
     // https://tools.ietf.org/html/rfc2812#section-2.3
     prefix: Option<String>,
     command: Command,
     params: Vec<String>,
 }
-*/
+
+#[derive(Debug)]
+pub struct LineCodec;
+
+impl Decoder for LineCodec {
+    type Item = Line;
+    type Error = io::Error;
+
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, io::Error> {
+        Ok(Some(Line {
+            prefix: None,
+            command: Command::Tmp,
+            params: vec![],
+        }))
+    }
+}
+
+
 
 #[derive(Default)]
 pub struct IntCodec;
@@ -186,6 +212,7 @@ impl Encoder for IntCodec {
         Ok(())
     }
 }
+*/
 
 // Next, we implement the server protocol, which just hooks up the codec above.
 
