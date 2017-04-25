@@ -1,4 +1,136 @@
 extern crate futures;
+extern crate tokio_proto;
+extern crate tokio_service;
+extern crate tokio_io;
+extern crate tokio_core;
+extern crate bytes;
+
+use std::str;
+use std::io::{self, ErrorKind, Write};
+use std::net::ToSocketAddrs;
+
+use futures::{future, Future, BoxFuture};
+//use tokio_proto::TcpServer;
+use tokio_proto::TcpClient;
+//use tokio_proto::pipeline::ServerProto;
+use tokio_proto::pipeline::ClientProto;
+use tokio_service::Service;
+use tokio_core::reactor::Core;
+use tokio_io::codec::{Encoder, Decoder};
+use tokio_io::codec::Framed;
+use tokio_io::{AsyncRead, AsyncWrite};
+use bytes::{BytesMut, BufMut};
+
+// First, we implement a *codec*, which provides a way of encoding and
+// decoding messages for the protocol. See the documentation for `Codec` in
+// `tokio-core` for more details on how that works.
+
+#[derive(Default)]
+pub struct IntCodec;
+
+fn parse_u64(from: &[u8]) -> Result<u64, io::Error> {
+    Ok(str::from_utf8(from)
+       .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?
+       .parse()
+       .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?)
+}
+
+impl Decoder for IntCodec {
+    type Item = u64;
+    type Error = io::Error;
+
+    // Attempt to decode a message from the given buffer if a complete
+    // message is available; returns `Ok(None)` if the buffer does not yet
+    // hold a complete message.
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<u64>, io::Error> {
+        if let Some(mut i) = buf.iter().position(|&b| b == b'\n') {
+            // remove the line, including the '\n', from the buffer
+            let full_line = buf.split_to(i + 1);
+            // strip the `\n' (and `\r' if present)
+            if full_line.ends_with(&[b'\r', b'\n']) {
+                i -= 1;
+            }
+            let slice = &full_line[..i];
+            Ok(Some(parse_u64(slice)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    // Attempt to decode a message assuming that the given buffer contains
+    // *all* remaining input data.
+    fn decode_eof(&mut self, buf: &mut BytesMut) -> Result<Option<u64>, io::Error> {
+        let amt = buf.len();
+        Ok(Some(parse_u64(&buf.split_to(amt)[..])?))
+    }
+}
+
+impl Encoder for IntCodec {
+    type Item = u64;
+    type Error = io::Error;
+
+    fn encode(&mut self, item: u64, into: &mut BytesMut) -> io::Result<()> {
+        writeln!(into.writer(), "{}", item)?;
+        Ok(())
+    }
+}
+
+// Next, we implement the server protocol, which just hooks up the codec above.
+
+pub struct IntProto;
+
+//impl<T: AsyncRead + AsyncWrite + 'static> ServerProto<T> for IntProto {
+impl<T: AsyncRead + AsyncWrite + 'static> ClientProto<T> for IntProto {
+    type Request = u64;
+    type Response = u64;
+    type Transport = Framed<T, IntCodec>;
+    type BindTransport = Result<Self::Transport, io::Error>;
+
+    fn bind_transport(&self, io: T) -> Self::BindTransport {
+        Ok(io.framed(IntCodec))
+    }
+}
+
+// Now we implement a service we'd like to run on top of this protocol
+
+pub struct Doubler;
+
+impl Service for Doubler {
+    type Request = u64;
+    type Response = u64;
+    type Error = io::Error;
+    type Future = BoxFuture<u64, io::Error>;
+
+    fn call(&self, req: u64) -> Self::Future {
+        // Just return the request, doubled
+        future::finished(req * 2).boxed()
+    }
+}
+
+// Finally, we can actually host this service locally!
+fn main() {
+    //let addr = "0.0.0.0:12345".parse().unwrap();
+    //TcpServer::new(IntProto, addr)
+    //    .serve(|| Ok(Doubler));
+    let cm = "USER qj 0 * qjkx\r\nNICK qjk\r\nJOIN #test\r\n".as_bytes();
+
+	//let addr = "irc.freenode.org:6697".to_socket_addrs().unwrap().next().unwrap();
+	let addr = "0.0.0.0:12345".to_socket_addrs().unwrap().next().unwrap();
+
+	let mut core = Core::new().unwrap();
+	let handle = core.handle();
+    let cli = TcpClient::new(IntProto);
+    let socket = cli.connect(&addr, &handle);
+    let response = socket.and_then(|x| x.call(420));
+
+	let data = core.run(response);//.unwrap();
+	println!("{:?}", data);
+	//let (_socket, data) = core.run(response).unwrap();
+	//println!("{}", String::from_utf8_lossy(&data));
+}
+
+/*
+extern crate futures;
 extern crate native_tls;
 extern crate tokio_core;
 extern crate tokio_io;
@@ -43,155 +175,82 @@ fn main() {
 	println!("{}", String::from_utf8_lossy(&data));
 }
 
-
-
-/*
-extern crate bytes;
-extern crate futures;
-extern crate tokio_io;
-extern crate tokio_proto;
-extern crate tokio_service;
-
-use std::io;
-use std::str;
-use bytes::{BytesMut};
-use tokio_io::codec::{Encoder, Decoder};
-
-pub struct LineCodec;
-
-impl Decoder for LineCodec {
-    type Item = String;
-    type Error = io::Error;
-
-    fn decode(&mut self, buf: &mut BytesMut) -> io::Result<Option<String>> {
-        if let Some(i) = buf.iter().position(|&b| b == b'\n') {
-            let line = buf.split_to(i);
-            buf.split_to(1);
-            match str::from_utf8(&line) {
-                Ok(s) => Ok(Some(s.to_string())),
-                Err(_) => Err(io::Error::new(io::ErrorKind::Other, "bad utf8"))
-            }
-        } else {
-            Ok(None)
-        }
-    }
-}
-
-impl Encoder for LineCodec {
-    type Item = String;
-    type Error = io::Error;
-
-    fn encode(&mut self, msg: String, buf: &mut BytesMut) -> io::Result<()> {
-        buf.extend(msg.as_bytes());
-        buf.extend(b"\n");
-        Ok(())
-    }
-}
-
-use tokio_proto::pipeline::ServerProto;
-pub struct LineProto;
-
-use tokio_io::{AsyncRead, AsyncWrite};
-use tokio_io::codec::Framed;
-
-impl<T: AsyncRead + AsyncWrite + 'static> ServerProto<T> for LineProto {
-    // For this protocol style, `Request` matches the codec `In` type
-    type Request = String;
-
-    // For this protocol style, `Response` matches the coded `Out` type
-    type Response = String;
-
-    // A bit of boilerplate to hook in the codec:
-    type Transport = Framed<T, LineCodec>;
-    type BindTransport = Result<Self::Transport, io::Error>;
-    fn bind_transport(&self, io: T) -> Self::BindTransport {
-        Ok(io.framed(LineCodec))
-    }
-}
-
-use tokio_service::Service;
-pub struct Echo;
-use futures::{future, Future, BoxFuture};
-
-impl Service for Echo {
-    // These types must match the corresponding protocol types:
-    type Request = String;
-    type Response = String;
-
-    // For non-streaming protocols, service errors are always io::Error
-    type Error = io::Error;
-
-    // The future for computing the response; box it for simplicity.
-    type Future = BoxFuture<Self::Response, Self::Error>;
-
-    // Produce a future for computing a response from a request.
-    fn call(&self, req: Self::Request) -> Self::Future {
-        // In this case, the response is immediate.
-        future::ok(req).boxed()
-    }
-}
-
-use tokio_proto::TcpServer;
-
-fn main() {
-    // Specify the localhost address
-    let addr = "0.0.0.0:12345".parse().unwrap();
-
-    // The builder requires a protocol and an address
-    let server = TcpServer::new(LineProto, addr);
-
-    // We provide a way to *instantiate* the service for each new
-    // connection; here, we just immediately return a new instance.
-    server.serve(|| Ok(Echo));
-}
 */
 
 
-/* a bouncer should be capable of:
- *  independently connecting to an irc server and joining channels
- *  logging everything it sees
- *  echoing what it sees to a user if they're connected
- *  handling errors (should not crash)
- *  send / receive messages
- */
-
-
-
-
 /*
+
 extern crate futures;
 extern crate tokio_proto;
 extern crate tokio_service;
 extern crate tokio_io;
 extern crate bytes;
 
-use std::io;
+use std::str;
+use std::io::{self, ErrorKind, Write};
 
 use futures::{future, Future, BoxFuture};
 use tokio_proto::TcpServer;
 use tokio_proto::pipeline::ServerProto;
 use tokio_service::Service;
+use tokio_io::codec::{Encoder, Decoder};
 use tokio_io::codec::Framed;
 use tokio_io::{AsyncRead, AsyncWrite};
+use bytes::{BytesMut, BufMut};
 
 // First, we implement a *codec*, which provides a way of encoding and
 // decoding messages for the protocol. See the documentation for `Codec` in
 // `tokio-core` for more details on how that works.
 
+#[derive(Default)]
+pub struct IntCodec;
 
-mod codec;
-use codec::*;
-
-/*
-//mod responses;
-pub enum Response {
-    Command(responses::CmdRsp),
-    Error(  responses::ErrRsp),
-    Misc(   responses::MscRsp),
-    Unknown,
+fn parse_u64(from: &[u8]) -> Result<u64, io::Error> {
+    Ok(str::from_utf8(from)
+       .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?
+       .parse()
+       .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?)
 }
-*/
 
+impl Decoder for IntCodec {
+    type Item = u64;
+    type Error = io::Error;
+
+    // Attempt to decode a message from the given buffer if a complete
+    // message is available; returns `Ok(None)` if the buffer does not yet
+    // hold a complete message.
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<u64>, io::Error> {
+        if let Some(mut i) = buf.iter().position(|&b| b == b'\n') {
+            // remove the line, including the '\n', from the buffer
+            let full_line = buf.split_to(i + 1);
+            // strip the `\n' (and `\r' if present)
+            if full_line.ends_with(&[b'\r', b'\n']) {
+                i -= 1;
+            }
+            let slice = &full_line[..i];
+            Ok(Some(parse_u64(slice)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    // Attempt to decode a message assuming that the given buffer contains
+    // *all* remaining input data.
+    fn decode_eof(&mut self, buf: &mut BytesMut) -> Result<Option<u64>, io::Error> {
+        let amt = buf.len();
+        Ok(Some(parse_u64(&buf.split_to(amt)[..])?))
+    }
+}
+
+impl Encoder for IntCodec {
+    type Item = u64;
+    type Error = io::Error;
+
+    fn encode(&mut self, item: u64, into: &mut BytesMut) -> io::Result<()> {
+        writeln!(into.writer(), "{}", item)?;
+        Ok(())
+    }
+}
 
 // Next, we implement the server protocol, which just hooks up the codec above.
 
@@ -230,5 +289,4 @@ fn main() {
     TcpServer::new(IntProto, addr)
         .serve(|| Ok(Doubler));
 }
-
 */
