@@ -4,6 +4,7 @@ use std::io::{self, ErrorKind, Write};
 use tokio_io::codec::{Encoder, Decoder};
 use bytes::{BytesMut, BufMut};
 
+/*
 #[derive(Debug)]
 pub enum Command {
     Num(u16),
@@ -69,6 +70,7 @@ impl Encoder for LineCodec {
         Ok(())
     }
 }
+*/
 
 
 

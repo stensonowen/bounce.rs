@@ -1,3 +1,50 @@
+extern crate futures;
+extern crate native_tls;
+extern crate tokio_core;
+extern crate tokio_io;
+extern crate tokio_tls;
+
+use std::io;
+use std::net::ToSocketAddrs;
+
+use futures::Future;
+use native_tls::TlsConnector;
+use tokio_core::net::TcpStream;
+use tokio_core::reactor::Core;
+use tokio_tls::TlsConnectorExt;
+
+
+fn main() {
+    let cm = "USER qj 0 * qjkx\r\nNICK qjk\r\nJOIN #test\r\n".as_bytes();
+
+	let mut core = Core::new().unwrap();
+	let handle = core.handle();
+	let addr = "irc.freenode.org:6697".to_socket_addrs().unwrap().next().unwrap();
+
+	let cx = TlsConnector::builder().unwrap().build().unwrap();
+	let socket = TcpStream::connect(&addr, &handle);
+
+	let tls_handshake = socket.and_then(|socket| {
+        println!("Shaking");
+		let tls = cx.connect_async("irc.freenode.org", socket);
+		tls.map_err(|e| {
+			io::Error::new(io::ErrorKind::Other, e)
+		})
+	});
+	let request = tls_handshake.and_then(|socket| {
+        println!("Writing connect message");
+        tokio_io::io::write_all(socket, cm)
+	});
+	let response = request.and_then(|(socket, _request)| {
+		tokio_io::io::read_to_end(socket, vec![])
+	});
+
+	let (_socket, data) = core.run(response).unwrap();
+	println!("{}", String::from_utf8_lossy(&data));
+}
+
+
+
 /*
 extern crate bytes;
 extern crate futures;
@@ -108,6 +155,10 @@ fn main() {
  *  send / receive messages
  */
 
+
+
+
+/*
 extern crate futures;
 extern crate tokio_proto;
 extern crate tokio_service;
@@ -127,7 +178,6 @@ use tokio_io::{AsyncRead, AsyncWrite};
 // decoding messages for the protocol. See the documentation for `Codec` in
 // `tokio-core` for more details on how that works.
 
-//mod irc; 
 
 mod codec;
 use codec::*;
@@ -142,88 +192,6 @@ pub enum Response {
 }
 */
 
-/*
-#[derive(Debug)]
-pub enum Command {
-    Tmp,
-}
-
-#[derive(Debug)]
-pub struct Line {
-    // https://tools.ietf.org/html/rfc2812#section-2.3
-    prefix: Option<String>,
-    command: Command,
-    params: Vec<String>,
-}
-
-#[derive(Debug)]
-pub struct LineCodec;
-
-impl Decoder for LineCodec {
-    type Item = Line;
-    type Error = io::Error;
-
-    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, io::Error> {
-        Ok(Some(Line {
-            prefix: None,
-            command: Command::Tmp,
-            params: vec![],
-        }))
-    }
-}
-
-
-
-#[derive(Default)]
-pub struct IntCodec;
-
-fn parse_u64(from: &[u8]) -> Result<u64, io::Error> {
-    Ok(str::from_utf8(from)
-       .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?
-       .parse()
-       .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?)
-}
-
-impl Decoder for IntCodec {
-    type Item = u64;
-    type Error = io::Error;
-
-    // Attempt to decode a message from the given buffer if a complete
-    // message is available; returns `Ok(None)` if the buffer does not yet
-    // hold a complete message.
-    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<u64>, io::Error> {
-        if let Some(mut i) = buf.iter().position(|&b| b == b'\n') {
-            // remove the line, including the '\n', from the buffer
-            let full_line = buf.split_to(i + 1);
-            // strip the `\n' (and `\r' if present)
-            if full_line.ends_with(&[b'\r', b'\n']) {
-                i -= 1;
-            }
-            let slice = &full_line[..i];
-            Ok(Some(parse_u64(slice)?))
-        } else {
-            Ok(None)
-        }
-    }
-
-    // Attempt to decode a message assuming that the given buffer contains
-    // *all* remaining input data.
-    fn decode_eof(&mut self, buf: &mut BytesMut) -> Result<Option<u64>, io::Error> {
-        let amt = buf.len();
-        Ok(Some(parse_u64(&buf.split_to(amt)[..])?))
-    }
-}
-
-impl Encoder for IntCodec {
-    type Item = u64;
-    type Error = io::Error;
-
-    fn encode(&mut self, item: u64, into: &mut BytesMut) -> io::Result<()> {
-        writeln!(into.writer(), "{}", item)?;
-        Ok(())
-    }
-}
-*/
 
 // Next, we implement the server protocol, which just hooks up the codec above.
 
@@ -262,3 +230,5 @@ fn main() {
     TcpServer::new(IntProto, addr)
         .serve(|| Ok(Doubler));
 }
+
+*/
