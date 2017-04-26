@@ -153,10 +153,11 @@ fn main() {
     let handle = core.handle();
 
     let tc = TcpClient::new(LineProto);
+    /*
     let response = tc
         .connect(&addr, &handle)
         .and_then(|client| {
-            client.call("ONE\r\n".to_string())
+            client.call("ONE".to_string())
                 .and_then(move |response| {
                     client.call("TWO".to_string())
                         .and_then(move |response| {
@@ -164,10 +165,28 @@ fn main() {
                         })
                 })
         });
+        */
+    let response = tc.connect(&addr, &handle)
+        .and_then(|client| {
+            client.call(cm)
+                .and_then(move |r0| {
+                    loop_fn(client, |c| {
+                        c.call("ack".to_string())
+                            .and_then(|ri| {
+                                if ri == "DONE" {
+                                    Ok(Loop::Break(c))
+                                } else {
+                                    Ok(Loop::Continue(c))
+                                }
+                            })
+                    })
+                })
+        });
     //let socket = tc.connect(&addr, &handle);
     //let response = socket.and_then(|x| x.call(cm));
+    
     let data = core.run(response);//.unwrap();
-    println!("{:?}", data);
+    //println!("{:?}", data);
 
     
     //let client = tc.and_then(|x| x.call(cm));
