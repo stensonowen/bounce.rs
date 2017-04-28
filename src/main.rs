@@ -9,16 +9,18 @@ extern crate bytes;
 use std::{io, str};
 use std::net::ToSocketAddrs;
 
-use futures::{Future, Poll, StartSend};
+use futures::{stream, Future, Poll, StartSend};
 use futures::{Async, Stream, Sink, AsyncSink};
-use futures::future::{loop_fn, Loop};
-use tokio_proto::TcpClient;
-use tokio_proto::pipeline::{ClientProto, ClientService};
-use tokio_service::Service;
+//use futures::future::{loop_fn, Loop};
+//use tokio_proto::TcpClient;
+//use tokio_proto::pipeline::{ClientProto, ClientService};
+use tokio_proto::pipeline::ClientProto;
+//use tokio_service::Service;
 use tokio_core::reactor::Core;
 use tokio_core::net::TcpStream;
 use tokio_io::codec::{Encoder, Decoder, Framed};
 use tokio_io::{AsyncRead, AsyncWrite};
+//use bytes::{BufMut, BytesMut};
 use bytes::BytesMut;
 
 
@@ -30,7 +32,7 @@ impl Decoder for LineCodec {
     type Error = io::Error;
 
     fn decode(&mut self, buf: &mut BytesMut) -> io::Result<Option<String>> {
-        println!("Received: {:?}", std::str::from_utf8(buf));
+        //println!("Received: {:?}", std::str::from_utf8(buf));
         if let Some(i) = buf.iter().position(|&b| b == b'\n') {
             let line = buf.split_to(i);
             buf.split_to(1);
@@ -122,6 +124,7 @@ impl<T> Sink for PingPong<T>
 }
 
 
+
 pub struct LineProto;
 
 impl<T: AsyncRead + AsyncWrite + 'static> ClientProto<T> for LineProto {
@@ -135,21 +138,71 @@ impl<T: AsyncRead + AsyncWrite + 'static> ClientProto<T> for LineProto {
 }
 
 
-fn main() {
-    let cm = "USER qj 0 * qjkx\r\nNICK qjk\r\nJOIN #test\r\n".to_string();
-    //let cm = "USER a b c d\r\nNICK qjkx\r\n".to_string();
-    //let cm = "USER a b c d\r\n".to_string();
-    
 
+
+fn main() {
+    let conn_msg: Vec<Result<String,io::Error>> = vec![
+        Ok("USER a b c d".to_string()),
+        Ok("NICK qjk".to_string()),
+        Ok("JOIN #test".to_string()),
+    ];
 
     //let addr = "irc.freenode.org:6667".to_socket_addrs().unwrap().next().unwrap();
-    //let addr = "irc.mozilla.org:6667".to_socket_addrs().unwrap().next().unwrap();
     let addr = "0.0.0.0:12345".to_socket_addrs().unwrap().next().unwrap();
 
     let mut core = Core::new().unwrap();
     let handle = core.handle();
+    //let p = PingPong::new(LineCodec);
 
-    let tc = TcpClient::new(LineProto);
+    let work = TcpStream::connect(&addr, &handle)
+        .and_then(|socket| {
+            // is this redundant?
+            let (sink, stream) = socket.framed(LineCodec).split();
+            //let (sink, stream) = socket.framed(LineProto).split();
+            //let (sink, stream) = socket.framed(PingPong<LineCodec>).split();
+            sink.send_all(stream::iter(conn_msg)).and_then(|_| {
+                // better way to do this?
+                stream.for_each(|i| {
+                    println!("SAW: `{}`", i.replace("\r\n", ""));
+                    futures::future::ok(())
+                })
+            })
+        });
+    // will be empty vec
+    let data = core.run(work).unwrap();
+    println!("DATA: {:?}", data);
+
+/*
+	let mut core = Core::new().unwrap();
+    let handle = core.handle();
+    let remote_addr = "127.0.0.1:14566".parse().unwrap();
+
+    let work = TcpStream::connect(&remote_addr, &handle)
+        .and_then(|socket| {
+            // Once the socket has been established, use the `framed` helper to
+            // create a transport.
+            let transport = socket.framed(LineCodec);
+
+            // We're just going to send a few "log" messages to the remote
+            let lines_to_send: Vec<Result<String, io::Error>> = vec![
+                Ok("Hello world".to_string()),
+                Ok("This is another message".to_string()),
+                Ok("Not much else to say".to_string()),
+            ];
+
+            // Send all the messages to the remote. The strings will be encoded by
+            // the `Codec`. `send_all` returns a future that completes once
+            // everything has been sent.
+            transport.send_all(stream::iter(lines_to_send))
+        });
+    core.run(work).unwrap();
+*/
+
+
+
+
+    //let tc = TcpClient::new(LineProto);
+
     /*
     let tc = TcpClient::new(LineProto);
     let response = tc.connect(&addr, &handle)
@@ -169,6 +222,7 @@ fn main() {
             );
             */
 
+    /*
     let response = tc.connect(&addr, &handle)
         .and_then(|client| client.call(cm)
             //.and_then(|_r0| loop_fn(client, |c| c.call("ACK".to_string())
@@ -183,6 +237,7 @@ fn main() {
                         })
                     ))
                 );
+                      */
     /*
     let response = tc.connect(&addr, &handle)
         .and_then(|client| client.foo().call("USER a b c d".to_string())
@@ -204,6 +259,6 @@ fn main() {
         );
         */
     
-    core.run(response).unwrap();
+    //core.run(response).unwrap();
 }
 
