@@ -15,6 +15,61 @@ use tokio_io::codec::{Encoder, Decoder};
 use tokio_io::AsyncRead;
 use bytes::BytesMut;
 
+// All lines are sent to a client
+pub enum Line {
+    // PMs are logged sometimes trigger alerts
+    PrivMsg { src: String, dst: String, text: String, orig: String },
+    // Metadata is not logged 
+    Meta { orig: String },
+}
+
+impl Line {
+    fn new_meta(s: &str) -> Self {
+        Line::Meta{ orig: s.to_string() }
+    }
+}
+
+impl std::string::ToString for Line {
+    fn to_string(&self) -> String {
+        match *self {
+            Line::PrivMsg { orig: ref o, .. } => o,
+            Line::Meta { orig: ref o, .. } => o,
+        }.clone()
+    }
+}
+
+impl std::str::FromStr for Line {
+    type Err = ();
+
+    fn from_str(input: &str) -> Result<Self,Self::Err> {
+        // TODO: adhere closer to the RFC
+        // e.g. `:Angel!wings@irc.org PRIVMSG Wiz message goes here`
+        let mut parts = input.splitn(4, ' ');
+        let src = parts.nth(0);
+        let op  = parts.nth(0);
+        let dst = parts.nth(0);
+        let msg = parts.nth(0);
+        if let (Some(m), Some(d), Some(o), Some(s)) = (msg, dst, op, src) {
+            if o == "PRIVMSG" || o == "NOTICE" {
+                let i = if s.starts_with(':') { 1 } else { 0 };
+                let j = s.find(':').unwrap_or(s.len()-1);
+                let src_fixed = &s[i..j];
+                let msg_fixed = if m.starts_with(':') { &m[1..] } else { m };
+                // TODO: do something with "\r\n" ending?
+                Ok(Line::PrivMsg {
+                    src: src_fixed.to_string(),
+                    dst: d.to_string(),
+                    text: msg_fixed.to_string(),
+                    orig: input.to_string(),
+                })
+            } else {
+                Ok(Line::new_meta(input))
+            }
+        } else {
+            Ok(Line::new_meta(input))
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct LineCodec;
@@ -124,8 +179,8 @@ fn main() {
         Ok("JOIN #test".to_string())
     ];
 
-    let addr = "irc.freenode.org:6667".to_socket_addrs().unwrap().next().unwrap();
-    //let addr = "0.0.0.0:12345".to_socket_addrs().unwrap().next().unwrap();
+    //let addr = "irc.freenode.org:6667".to_socket_addrs().unwrap().next().unwrap();
+    let addr = "0.0.0.0:12345".to_socket_addrs().unwrap().next().unwrap();
 
     let mut core = Core::new().unwrap();
     let handle = core.handle();
@@ -145,3 +200,5 @@ fn main() {
     // empty tuple
     core.run(listen).unwrap();
 }
+
+
