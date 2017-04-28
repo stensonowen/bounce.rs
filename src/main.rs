@@ -87,11 +87,11 @@ impl<T> Stream for PingPong<T>
                 let resp = msg.replacen("PING", "PONG", 1);
                 self.response = Some(resp);
                 self.poll_complete()?;
-                let _poll = try_ready!(self.upstream.poll());
-                // Never hit:
-                println!("UHHHH `{:?}`", _poll);
-                unimplemented!();
-                //Ok(Async::Ready(_poll))
+
+                let poll = try_ready!(self.upstream.poll());
+                // does this actually work? never tested it
+                println!("NOTE: {:?}", poll);
+                Ok(Async::Ready(poll))
             },
             // Final output:
             m => Ok(Async::Ready(m))
@@ -137,24 +137,72 @@ impl<T: AsyncRead + AsyncWrite + 'static> ClientProto<T> for LineProto {
 
 fn main() {
     let cm = "USER qj 0 * qjkx\r\nNICK qjk\r\nJOIN #test\r\n".to_string();
+    //let cm = "USER a b c d\r\nNICK qjkx\r\n".to_string();
+    //let cm = "USER a b c d\r\n".to_string();
+    
 
-    //let addr = "irc.freenode.org:6697".to_socket_addrs().unwrap().next().unwrap();
+
+    //let addr = "irc.freenode.org:6667".to_socket_addrs().unwrap().next().unwrap();
+    //let addr = "irc.mozilla.org:6667".to_socket_addrs().unwrap().next().unwrap();
     let addr = "0.0.0.0:12345".to_socket_addrs().unwrap().next().unwrap();
 
     let mut core = Core::new().unwrap();
     let handle = core.handle();
 
     let tc = TcpClient::new(LineProto);
+    /*
+    let tc = TcpClient::new(LineProto);
+    let response = tc.connect(&addr, &handle)
+        .and_then(|client| client.call("USER a b c d".to_string())
+            .and_then(move |r1| {
+                println!("GOT1: {}", r1);
+                client.call("NICK qjkxk".to_string())}
+                .and_then(move |r2| {
+                    println!("GOT2: {}", r2);
+                    client.call("JOIN #test".to_string())}
+                    .and_then(move |r3| {
+                        println!("GOT3: {}", r3);
+                        client.call("PRIVMSG #test foo".to_string())}
+                              )
+                          )
+                      )
+            );
+            */
+
     let response = tc.connect(&addr, &handle)
         .and_then(|client| client.call(cm)
-            .and_then(move |_r0| loop_fn(client, |c| c.call("ACK".to_string())
-                .and_then(|_ri| {
-                    let lcs: Loop<ClientService<TcpStream,LineProto>,_> 
-                        = Loop::Continue(c);
-                    Ok(lcs)
-                })
-            ))
+            //.and_then(|_r0| loop_fn(client, |c| c.call("ACK".to_string())
+            .and_then(|_r0| loop_fn(client, |c| futures::future::ok(()) // :/
+            //.and_then(|_r0| loop_fn(client, |c| futures::future::ok(c)
+                        .and_then(|_ri| {
+                            //x.fetch_add(1, Ordering::SeqCst);
+                            //println!("`{}`", _ri);
+                            let lcs: Loop<ClientService<TcpStream,LineProto>,_> 
+                                = Loop::Continue(c);
+                            Ok(lcs)
+                        })
+                    ))
+                );
+    /*
+    let response = tc.connect(&addr, &handle)
+        .and_then(|client| client.foo().call("USER a b c d".to_string())
+            .and_then(|rx| client.call("NICK qjkxk".to_string())
+                .and_then(|ry| client.call("JOIN #test".to_string())
+            //.and_then(|_r0| loop_fn(client, |c| c.call("ACK".to_string())
+                    .and_then(|_r0| loop_fn(client, |c| c.call(String::new())
+            //.and_then(|_r0| loop_fn(client, |c| futures::future::ok(c)
+                        .and_then(|_ri| {
+                            x.fetch_add(1, Ordering::SeqCst);
+                            //println!("`{}`", _ri);
+                            let lcs: Loop<ClientService<TcpStream,LineProto>,_> 
+                                = Loop::Continue(c);
+                            Ok(lcs)
+                        })
+                    ))
+                )
+            )
         );
+        */
     
     core.run(response).unwrap();
 }
