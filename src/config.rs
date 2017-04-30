@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io::{self, Read};
 use std::fs::File;
+use rpassword;
 use toml;
 
 const DEFAULT_UTC: bool = false;
@@ -38,24 +39,24 @@ struct ServerToml {
 
 #[derive(Debug)]
 pub struct Config {
-    logs_dir: String,
-    timefmt: Option<String>,
-    servers: HashMap<String,Server>,
-    utc: bool,
+    pub logs_dir: String,
+    pub timefmt: Option<String>,
+    pub servers: HashMap<String,Server>,
+    pub utc: bool,
 }
 
 #[derive(Debug)]
 pub struct Server {
-    nick: String,
-    user: String,
-    mode: u8,
-    realname: String,
+    pub nick: String,
+    pub user: String,
+    pub mode: u8,
+    pub realname: String,
     addr: String,
-    chans: Vec<String>,
-    chan_keys: Option<Vec<String>>,
-    password: bool,
-    tls: bool,
-    log: bool,
+    pub chans: Vec<String>,
+    pub chan_keys: Option<Vec<String>>,
+    pub password: Option<String>,
+    pub tls: bool,
+    pub log: bool,
 }
 
 #[derive(Debug)]
@@ -65,6 +66,7 @@ pub enum ParseError {
     ResolveError(String),
 }
 
+use std::error::Error;
 impl ServerToml {
     fn build(self, 
              serv_name: &str,
@@ -73,6 +75,14 @@ impl ServerToml {
              alt_m: &Option<u8>, 
              alt_r: &Option<String>
              ) -> Result<Server,String> {
+        let pw = if self.password.unwrap_or(false) {
+            let prompt = format!("Please enter password for {}: ", serv_name);
+            let pw = rpassword::prompt_password_stdout(&prompt)
+                .map_err(|e| e.description().to_owned())?;
+            Some(pw)
+        } else {
+            None
+        };
         Ok(Server {
             nick: self.nick.or(alt_n.clone())
                 .ok_or(format!("`Nick` field missing from {}", serv_name))?,
@@ -81,12 +91,12 @@ impl ServerToml {
             mode: self.mode.or(alt_m.clone()).unwrap_or(DEFAULT_MODE),
             realname: self.realname.or(alt_r.clone())
                 .ok_or(format!("`Realname` field missing from {}", serv_name))?,
-                addr: self.addr,
-                chans: self.chans,
-                chan_keys: self.chan_keys,
-                password: self.password.unwrap_or(false),
-                tls: self.tls.unwrap_or(DEFAULT_TLS),
-                log: self.log.unwrap_or(DEFAULT_LOG),
+            addr: self.addr,
+            chans: self.chans,
+            chan_keys: self.chan_keys,
+            password: pw,
+            tls: self.tls.unwrap_or(DEFAULT_TLS),
+            log: self.log.unwrap_or(DEFAULT_LOG),
         })
     }
 }
@@ -151,6 +161,33 @@ fn build_config(old: ConfigToml) -> Result<Config,String> {
     })
 }
 */
+impl Server {
+    pub fn conn_msg(&self) -> Vec<String> {
+        vec![
+            format!("USER {} {} * {}", self.user, self.mode, self.realname), 
+            format!("NICK {}", self.nick), 
+            if let Some(ref keys) = self.chan_keys {
+                format!("JOIN {} {}", self.chans.join(", "), keys.join(", "))
+            } else {
+                format!("JOIN {}", self.chans.join(", "))
+            }
+        ]
+    }
+    pub fn get_addr(&self) -> String {
+        if self.addr.contains(':') {
+            self.addr.clone()
+        } else {
+            let mut s = self.addr.clone();
+            s.push(':');
+            if self.tls {
+                s.push_str("6697");
+            } else {
+                s.push_str("6667");
+            }
+            s
+        }
+    }
+}
 
 impl Config {
     //pub fn from(path: &str) -> io::Result<Config> {

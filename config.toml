@@ -1,0 +1,35 @@
+# sample toml config file for bouncer
+# fields marked `optional` are the same as the default,
+#  and can be omitted without changing anything
+# if a nick/user/realname is not supplied for a server,
+#  it will default to the global values.
+#  Global values can be omitted if all servers have them.
+
+nick = "qjkxkcd_"
+user = "qjkxkcd"
+realname = "owen"
+logs_dir = "/tmp/irc_logs/"
+mode = 0                # optional
+utc_time = false        # optional
+#timefmt = "%H%m"
+
+[servers]
+
+    [servers.freenode]
+    addr = "irc.freenode.org"
+    tls = false                 # optional
+    password = false            # optional
+    nick = "qjkx_freenode"      # optional
+    user = "qjkx"               # optional
+    realname = "owen"           # optional
+    chans = ["#test", "#flood"]
+    chan_keys = ["test_key", "flood_key"] # can be ommitted
+    log = true                  # optional
+
+    [servers.rpisec]
+    addr = "irc.rpis.ec:6697"
+    tls = false                 # optional
+    password = false            # optional
+    chans = ["#chickengate"]
+
+
