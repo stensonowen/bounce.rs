@@ -88,7 +88,9 @@ const FILE_TIMEOUT_MS: u64 = 1_000;
 pub enum FileState {
     Open {
         writer: BufWriter<File>,
-        timeout: Box<Future<Item=FileClosed, Error=TimerError> + Send>,
+        //timeout: Box<Future<Item=io::Result<FileState>, Error=TimerError> + Send>,
+        timeout: Box<Future<Item=FileState, Error=TimerError> + Send>,
+        // can we chain onto this afterwards? p sure
         //timer: Option<Timeout<CpuFuture<FileClosed, ()>>>,
         path: PathBuf,
     },
@@ -96,12 +98,11 @@ pub enum FileState {
 }
 
 impl FileState {
+    fn new(name: &str) -> Self {
+        FileState::Closed(PathBuf::from(name))
+    }
     fn is_open(&self) -> bool {
-        if let &FileState::Open{..} = self {
-            true
-        } else {
-            false
-        }
+        if let &FileState::Open{..} = self { true } else { false }
     }
     fn clone_path(&self) -> PathBuf {
         match self {
@@ -109,28 +110,24 @@ impl FileState {
             &FileState::Closed(ref p) => p,
         }.clone()
     }
-    fn open(self) -> (io::Result<FileState>,
-                      Option<Box<Future<Item=FileState, Error=TimerError>>>) 
-    {
+    fn open(self) -> io::Result<FileState> {
         if self.is_open() {
-            (Ok(self),None)
+            Ok(self)
         } else {
             let pb = self.clone_path();
+            let mut f = File::open(&pb)?;
+            let bw = BufWriter::new(f);
             let timer = Timer::default();
             let close_event = timer.sleep(Duration::from_millis(FILE_TIMEOUT_MS))
-                .then(|t| t.map(|_| self.close()));
-            //FileState::
-            //let close: CpuFuture<FileState,io::Error> = pool.spawn_fn(|| {
-            //    thread::sleep(Duration::from_millis(FILE_TIMEOUT_MS));
-            //    self.close()
-            //});
-            //let todo = Duration::from_millis(2*FILE_TIMEOUT_MS);
-            //let timeout = timer.timeout(close, todo);
-            unimplemented!()
+                .then(|t| t.map(|_| self.close().unwrap()));
+            Ok(FileState::Open {
+                writer:  bw,
+                timeout: close_event.boxed(),
+                path:    pb,
+            })
         }
     }
     fn close(self) -> io::Result<FileState> {
-        //thread::sleep(Duration::from_millis(FILE_TIMEOUT_MS));
         if let FileState::Open{ writer: mut w, path: pb, .. } = self {
             w.flush()?;
             Ok(FileState::Closed(pb))
@@ -141,6 +138,39 @@ impl FileState {
 }
 
 pub struct Logs(HashMap<String,FileState>);
+use futures;
+
+impl Logs {
+    pub fn new() -> Self {
+        Logs(HashMap::new())
+    }
+    pub fn add(&mut self, name: &str) {
+        // TODO: not clobber?
+        let val = FileState::new(name);
+        self.0.insert(name.to_string(), val);
+    }
+    pub fn open(&mut self, name: String) {
+        let old_val = self.0.remove(&name).unwrap_or(FileState::new(&name));
+        let new_val = if old_val.is_open() {
+            let tmp = old_val.open().unwrap();
+            if let FileState::Open{ timeout: ref t, .. } = tmp {
+                t.and_then(|x| futures::future::ok(()));
+
+            }
+            tmp
+        } else {
+            old_val
+            //self.0.insert(name.to_string(), old_val);
+        };
+        self.0.insert(name, new_val);
+        //let entry = self.0.entry(name.to_string())
+        //    .or_insert(FileState::new(name));
+        //if entry.is_open() == false {
+        //    let val = entry.open();
+        //}
+    }
+
+}
 /*
 pub struct Logs {
     files: HashMap<String,FileState>,
