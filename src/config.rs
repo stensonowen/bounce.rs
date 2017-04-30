@@ -101,29 +101,6 @@ impl ServerToml {
     }
 }
 
-/*
-fn build_server(old: ServerToml, 
-                alt_nick: &Option<String>, 
-                alt_user: &Option<String>, 
-                alt_mode: &Option<u8>, 
-                alt_real: &Option<String>
-                ) -> Result<Server,String> {
-    Ok(Server {
-        nick: old.nick.or(alt_nick.clone()).ok_or("`Nick` required".to_string())?,
-        user: old.user.or(alt_user.clone()).ok_or("`User` required".to_string())?,
-        mode: old.mode.or(alt_mode.clone()).unwrap_or(DEFAULT_MODE),
-        realname: old.realname.or(alt_real.clone())
-            .ok_or("`Realname` required".to_string())?,
-        addr: old.addr,
-        chans: old.chans,
-        chan_keys: old.chan_keys,
-        password: old.password.unwrap_or(false),
-        tls: old.tls.unwrap_or(DEFAULT_TLS),
-        log: old.log.unwrap_or(DEFAULT_LOG),
-    })
-}
-*/
-
 fn build_servers(olds: HashMap<String,ServerToml>, 
                  alt_nick: Option<String>, 
                  alt_user: Option<String>, 
@@ -150,26 +127,15 @@ impl ConfigToml {
     }
 }
 
-/*
-fn build_config(old: ConfigToml) -> Result<Config,String> {
-    Ok(Config {
-        servers: build_servers(old.servers, old.nick, 
-                               old.user, old.mode, old.realname)?,
-        logs_dir: old.logs_dir,
-        timefmt: old.timefmt,
-        utc: old.utc.unwrap_or(DEFAULT_UTC),
-    })
-}
-*/
 impl Server {
     pub fn conn_msg(&self) -> Vec<String> {
         vec![
             format!("USER {} {} * {}", self.user, self.mode, self.realname), 
             format!("NICK {}", self.nick), 
             if let Some(ref keys) = self.chan_keys {
-                format!("JOIN {} {}", self.chans.join(", "), keys.join(", "))
+                format!("JOIN {} {}", self.chans.join(","), keys.join(","))
             } else {
-                format!("JOIN {}", self.chans.join(", "))
+                format!("JOIN {}", self.chans.join(","))
             }
         ]
     }
@@ -190,7 +156,6 @@ impl Server {
 }
 
 impl Config {
-    //pub fn from(path: &str) -> io::Result<Config> {
     pub fn from(path: &str) -> Result<Config,ParseError> {
         use self::ParseError::*;
         let mut f = File::open(path).map_err(|e| ReadError(e))?;
@@ -201,12 +166,3 @@ impl Config {
     }
 }
 
-/*
-pub fn parse_config(config_path: &str) -> io::Result<Config> {
-    let mut f = File::open(config_path)?;
-    let mut text = String::new();
-    f.read_to_string(&mut text)?;
-    let config = toml::from_str(&text).unwrap();
-    Ok(build_config(config).unwrap())
-}
-*/

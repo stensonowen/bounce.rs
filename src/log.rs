@@ -2,6 +2,7 @@ use std::io::{self, BufWriter, Write};
 use std::path::PathBuf;
 use std::fs::{File, OpenOptions};
 use std::collections::HashMap;
+use std::borrow::Cow;
 
 pub struct LogFile(BufWriter<File>);
 pub struct Logs(HashMap<String,LogFile>, PathBuf);
@@ -18,11 +19,11 @@ impl Logs {
         self.0.insert(name, LogFile(bw));
         Ok(())
     }
-    pub fn write(&mut self, name: &str, text: &str) -> io::Result<()> {
-        if self.0.contains_key(name) == false {
+    pub fn write(&mut self, name: Cow<str>, text: &str) -> io::Result<()> {
+        if self.0.contains_key(name.as_ref()) == false {
             self.add(name.to_string())?;
         }
-        if let Some(&mut LogFile(ref mut bw)) = self.0.get_mut(name) {
+        if let Some(&mut LogFile(ref mut bw)) = self.0.get_mut(name.as_ref()) {
             bw.write_all(text.as_bytes())
                 ?;bw.flush()    // TODO: comment this line out (just for debugging)
         } else {

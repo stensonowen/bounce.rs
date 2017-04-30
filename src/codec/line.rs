@@ -1,4 +1,5 @@
 use std::string::ToString;
+use std::borrow::Cow;
 use time;
 
 #[derive(Debug)]
@@ -30,7 +31,7 @@ impl Line {
         let s = p.replacen("PING ", "PONG ", 1);
         Line::Ping { orig: s }
     }
-    pub fn format_privmsg(&self) -> Option<(&str,String)> {
+    pub fn format_privmsg(&self, srv_name: &str) -> Option<(Cow<str>,String)> {
         // (name,msg)
         // if this message was in a public channel, `name` should be that channel
         // if it was a private message from another user, it should be their nick
@@ -40,7 +41,11 @@ impl Line {
             // https://tools.ietf.org/html/rfc2812#section-2.3.1
             let valid_nick_start = |c: char| 
                 c >= char::from(0x41) && c <= char::from(0x7d);
-            let name = if dst.starts_with(valid_nick_start) { src } else { dst };
+            let name: Cow<str> = if dst.starts_with(valid_nick_start) { 
+                Cow::Owned(format!("{}_{}", src, srv_name))
+            } else { 
+                Cow::Borrowed(dst)
+            };
             Some((name,msg))
         } else {
             None
