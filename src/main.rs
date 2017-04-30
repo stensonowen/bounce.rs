@@ -4,7 +4,13 @@ extern crate tokio_io;
 extern crate tokio_core;
 extern crate tokio_timer;
 extern crate bytes;
+
 extern crate time;
+
+#[macro_use]
+extern crate serde_derive;
+extern crate toml;
+
 
 use std::{io, str};
 use std::net::ToSocketAddrs;
@@ -14,6 +20,7 @@ use tokio_core::reactor::Core;
 use tokio_core::net::TcpStream;
 use tokio_io::AsyncRead;
 
+pub mod config;
 pub mod log;
 pub mod codec;
 use codec::{LineCodec, PingPong};
