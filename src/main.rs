@@ -12,6 +12,11 @@ extern crate rpassword;
 extern crate serde_derive;
 extern crate toml;
 
+#[macro_use]
+extern crate slog;
+extern crate slog_term;
+extern crate slog_async;
+
 
 use std::{io, str};
 use std::net::ToSocketAddrs;
@@ -29,22 +34,26 @@ use codec::line::Line;
 use log::Logs;
 use config::{Config, Server};
 
-fn server(srv_name: String, srv: Server, handle: Handle) {
+fn server(srv_name: String, srv: Server, log_path: &str, handle: Handle) {
     // TODO: make sure someone's nick can't contains directory traversal
     // `NICK ../../../../dev/sda1`
-    let mut logs = Logs::new("/tmp/irc_logs");
-    let conn_msg: Vec<Result<Line, io::Error>> = srv.conn_msg()
+    // TODO: stop passwords from leaking into log files
+    let mut logs = Logs::new(log_path);
+    let conn_msg: Vec<_> = srv.conn_msg();
+    info!(srv.logger, "Initiating connection: {:?}", conn_msg);
+    let conn_lines: Vec<Result<Line, io::Error>> = conn_msg
         .iter().map(|s| Ok(Line::from_str(s))).collect();
-    println!("{:?}", conn_msg);
     let addr = srv.get_addr().to_socket_addrs().unwrap().next().unwrap();
+    info!(srv.logger, "Connecting to {} w/ tls={}", addr, srv.tls);
     let stream = TcpStream::connect(&addr, &handle);
     let listen = stream.and_then(move |socket| {
         let transport = PingPong::new(socket.framed(LineCodec));
         let (sink, stream) = transport.split();
-        sink.send_all(stream::iter(conn_msg))
+        sink.send_all(stream::iter(conn_lines))
             .and_then(move |_| {
                 stream.for_each(move |line| {
-                    println!("SAW: `{:?}`", line);
+                    //info!(srv.logger, "{:?}", line); // if super verbose
+                    //info!(srv.logger, "{}", line.to_string());
                     if let Some((name,text)) = line.format_privmsg(&srv_name) {
                         logs.write(name,&text).unwrap();
                     }
@@ -55,16 +64,22 @@ fn server(srv_name: String, srv: Server, handle: Handle) {
     handle.spawn(listen);
 }
 
+use slog::Drain;
 fn main() {
+    // TODO: clap/docopt CLI args for logging verbosity|output / config file
     let config_file = "config2.toml";
-    let config = Config::from(config_file).unwrap();
+
+    let dec = slog_term::TermDecorator::new().build();
+    let drain = slog_term::FullFormat::new(dec).build().fuse();
+    let async_drain = slog_async::Async::new(drain).build().fuse();
+    let log = slog::Logger::root(async_drain, o!("cfg" => config_file));
+
+    let config = Config::from(config_file, &log).unwrap();
 
     let mut core = Core::new().unwrap();
-
     for (name,srv) in config.servers {
-        server(name, srv, core.handle());
+        server(name, srv, &config.logs_dir, core.handle());
     }
-
     let empty: future::Empty<(),()> = future::empty();
     core.run(empty).unwrap();
 

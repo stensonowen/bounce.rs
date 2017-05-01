@@ -3,6 +3,7 @@ use std::io::{self, Read};
 use std::fs::File;
 use rpassword;
 use toml;
+use slog;
 
 const DEFAULT_UTC: bool = false;
 const DEFAULT_TLS: bool = false;
@@ -30,6 +31,7 @@ struct ServerToml {
     chan_keys: Option<Vec<String>>,
     tls: Option<bool>,
     password: Option<bool>,
+    register: Option<bool>,
     nick: Option<String>,
     log: Option<bool>,
     user: Option<String>,
@@ -55,8 +57,12 @@ pub struct Server {
     pub chans: Vec<String>,
     pub chan_keys: Option<Vec<String>>,
     pub password: Option<String>,
+    pub register: Option<String>,
     pub tls: bool,
-    pub log: bool,
+    pub log_path: Option<String>,
+    //pub do_log: bool,
+    pub logger: slog::Logger,
+
 }
 
 #[derive(Debug)]
@@ -70,20 +76,34 @@ use std::error::Error;
 impl ServerToml {
     fn build(self, 
              serv_name: &str,
+             log_dir: &str,
              alt_n: &Option<String>, 
              alt_u: &Option<String>,
              alt_m: &Option<u8>, 
-             alt_r: &Option<String>
+             alt_r: &Option<String>,
+             logger: &slog::Logger,
              ) -> Result<Server,String> {
-        let pw = if self.password.unwrap_or(false) {
-            let prompt = format!("Please enter password for {}: ", serv_name);
+        let server_pw = if self.password.unwrap_or(false) {
+            let prompt = format!("Enter server password for {}: ", serv_name);
             let pw = rpassword::prompt_password_stdout(&prompt)
                 .map_err(|e| e.description().to_owned())?;
             Some(pw)
         } else {
             None
         };
+        let regis_pw = if self.register.unwrap_or(false) {
+            let prompt = format!("Enter registration password for {}: ", serv_name);
+            let pw = rpassword::prompt_password_stdout(&prompt)
+                .map_err(|e| e.description().to_owned())?;
+            Some(pw)
+        } else {
+            None
+        };
+
         Ok(Server {
+            logger: logger.new(o!("Name" => serv_name.to_owned(), 
+                                  "IP"   => self.addr.to_owned(), 
+                                  "Nick" => self.nick.to_owned())),
             nick: self.nick.or(alt_n.clone())
                 .ok_or(format!("`Nick` field missing from {}", serv_name))?,
             user: self.user.or(alt_u.clone())
@@ -94,9 +114,16 @@ impl ServerToml {
             addr: self.addr,
             chans: self.chans,
             chan_keys: self.chan_keys,
-            password: pw,
+            password: server_pw,
+            register: regis_pw,
             tls: self.tls.unwrap_or(DEFAULT_TLS),
-            log: self.log.unwrap_or(DEFAULT_LOG),
+            //do_log: self.log.unwrap_or(DEFAULT_LOG),
+            log_path: match self.log {
+                Some(true)          => Some(log_dir.to_owned()),
+                None if DEFAULT_LOG => Some(log_dir.to_owned()),
+                Some(false)         => None,
+                None                => None,
+            },
         })
     }
 }
@@ -105,21 +132,23 @@ fn build_servers(olds: HashMap<String,ServerToml>,
                  alt_nick: Option<String>, 
                  alt_user: Option<String>, 
                  alt_mode: Option<u8>, 
-                 alt_real: Option<String>
+                 alt_real: Option<String>,
+                 log_dir: &str,
+                 logger: &slog::Logger,
                  ) -> Result<HashMap<String,Server>,String> {
     let mut servers = HashMap::new();
     for (name,serv) in olds {
-        let new = serv.build(&name, &alt_nick, &alt_user, &alt_mode, &alt_real)?;
+        let new = serv.build(&name, log_dir, &alt_nick, &alt_user, &alt_mode, &alt_real, logger)?;
         servers.insert(name.to_string(),new);
     }
     Ok(servers)
 }
 
 impl ConfigToml {
-    fn build(self) -> Result<Config,String> {
+    fn build(self, log: &slog::Logger) -> Result<Config,String> {
         Ok(Config {
             servers: build_servers(self.servers, self.nick, 
-                                   self.user, self.mode, self.realname)?,
+                                   self.user, self.mode, self.realname, &self.logs_dir, log)?,
             logs_dir: self.logs_dir,
             timefmt: self.timefmt,
             utc: self.utc.unwrap_or(DEFAULT_UTC),
@@ -129,15 +158,21 @@ impl ConfigToml {
 
 impl Server {
     pub fn conn_msg(&self) -> Vec<String> {
-        vec![
-            format!("USER {} {} * {}", self.user, self.mode, self.realname), 
-            format!("NICK {}", self.nick), 
-            if let Some(ref keys) = self.chan_keys {
-                format!("JOIN {} {}", self.chans.join(","), keys.join(","))
-            } else {
-                format!("JOIN {}", self.chans.join(","))
-            }
-        ]
+        let mut cm = Vec::new();
+        if let Some(ref srv_pw) = self.password {
+            cm.push(format!("PASSWORD {}", srv_pw));
+        }
+        cm.push(format!("USER {} {} * {}", self.user, self.mode, self.realname));
+        cm.push(format!("NICK {}", self.nick));
+        if let Some(ref keys) = self.chan_keys {
+            cm.push(format!("JOIN {} {}", self.chans.join(","), keys.join(",")));
+        } else {
+            cm.push(format!("JOIN {}", self.chans.join(",")));
+        }
+        if let Some(ref reg_pw) = self.register {
+            cm.push(format!("PRIVMSG NickServ IDENTIFY {} {}", self.nick, reg_pw));
+        }
+        cm
     }
     pub fn get_addr(&self) -> String {
         if self.addr.contains(':') {
@@ -156,13 +191,13 @@ impl Server {
 }
 
 impl Config {
-    pub fn from(path: &str) -> Result<Config,ParseError> {
+    pub fn from(path: &str, log: &slog::Logger) -> Result<Config,ParseError> {
         use self::ParseError::*;
         let mut f = File::open(path).map_err(|e| ReadError(e))?;
         let mut s = String::new();
         f.read_to_string(&mut s).map_err(|e| ReadError(e))?;
         let config: ConfigToml = toml::from_str(&s).map_err(|e| ParseError(e))?;
-        Ok(config.build().map_err(|e| ResolveError(e))?)
+        Ok(config.build(log).map_err(|e| ResolveError(e))?)
     }
 }
 
