@@ -1,5 +1,5 @@
 use std::io::{self, BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{PathBuf};
 use std::fs::{File, OpenOptions};
 use std::collections::HashMap;
 use std::borrow::Cow;
@@ -8,6 +8,8 @@ pub struct LogFile(BufWriter<File>);
 pub struct Logs(HashMap<String,LogFile>, PathBuf);
 
 impl Logs {
+    //pub fn new(path: &Path) -> Self {
+    //pub fn new<P: AsRef<Path>>(path: P) -> Self {
     pub fn new(path: &str) -> Self {
         Logs(HashMap::new(), PathBuf::from(path))
     }

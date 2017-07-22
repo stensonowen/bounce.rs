@@ -19,4 +19,5 @@ rpassword = "0.4.0"
 slog = "2"
 slog-term = "2"
 slog-async = "2"
+clap = "*"
 

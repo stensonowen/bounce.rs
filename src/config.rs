@@ -118,6 +118,7 @@ impl ServerToml {
             register: regis_pw,
             tls: self.tls.unwrap_or(DEFAULT_TLS),
             //do_log: self.log.unwrap_or(DEFAULT_LOG),
+            //log_path: log_dir.to_owned(),
             log_path: match self.log {
                 Some(true)          => Some(log_dir.to_owned()),
                 None if DEFAULT_LOG => Some(log_dir.to_owned()),
@@ -188,6 +189,11 @@ impl Server {
             s
         }
     }
+    /*
+    pub fn get_dir(&self) -> &Path {
+        Path::new(self.log_path.unwrap())
+    }
+    */
 }
 
 impl Config {

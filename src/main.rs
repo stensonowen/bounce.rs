@@ -6,6 +6,7 @@ extern crate tokio_timer;
 extern crate bytes;
 
 extern crate time;
+extern crate clap;
 extern crate rpassword;
 
 #[macro_use]
@@ -25,6 +26,7 @@ use futures::{future, stream, Future, Stream, Sink};
 use tokio_core::reactor::{Core, Handle};
 use tokio_core::net::TcpStream;
 use tokio_io::AsyncRead;
+use slog::Drain;
 
 pub mod log;
 pub mod codec;
@@ -34,10 +36,10 @@ use codec::line::Line;
 use log::Logs;
 use config::{Config, Server};
 
-fn server(srv_name: String, srv: Server, log_path: &str, handle: Handle) {
+fn _server(srv_name: String, srv: Server, log_path: &str, handle: Handle) {
     // TODO: make sure someone's nick can't contains directory traversal
     // `NICK ../../../../dev/sda1`
-    // TODO: stop passwords from leaking into log files
+    // TODO: stop passwords from leaking into log files (don't long conn msg)
     let mut logs = Logs::new(log_path);
     let conn_msg: Vec<_> = srv.conn_msg();
     info!(srv.logger, "Initiating connection: {:?}", conn_msg);
@@ -45,6 +47,7 @@ fn server(srv_name: String, srv: Server, log_path: &str, handle: Handle) {
         .iter().map(|s| Ok(Line::from_str(s))).collect();
     let addr = srv.get_addr().to_socket_addrs().unwrap().next().unwrap();
     info!(srv.logger, "Connecting to {} w/ tls={}", addr, srv.tls);
+
     let stream = TcpStream::connect(&addr, &handle);
     let listen = stream.and_then(move |socket| {
         let transport = PingPong::new(socket.framed(LineCodec));
@@ -64,8 +67,7 @@ fn server(srv_name: String, srv: Server, log_path: &str, handle: Handle) {
     handle.spawn(listen);
 }
 
-use slog::Drain;
-fn main() {
+fn _main() {
     // TODO: clap/docopt CLI args for logging verbosity|output / config file
     let config_file = "config2.toml";
 
@@ -78,7 +80,7 @@ fn main() {
 
     let mut core = Core::new().unwrap();
     for (name,srv) in config.servers {
-        server(name, srv, &config.logs_dir, core.handle());
+        _server(name, srv, &config.logs_dir, core.handle());
     }
     let empty: future::Empty<(),()> = future::empty();
     core.run(empty).unwrap();
@@ -116,4 +118,56 @@ fn main() {
     */
 }
 
+
+use std::net::SocketAddr;
+use tokio_core::net::TcpListener;
+
+fn listener(addr: SocketAddr, handle: &Handle) -> io::Result<()> {
+    let socket = TcpListener::bind(&addr, &handle).unwrap();
+    println!("Listening on: {}", addr);
+
+    let (tx, rx) = futures::sync::mpsc::unbounded();
+    tx.send(String::from("foo"));
+
+    let data = socket.incoming().for_each(|(stream,addr)| {
+        let (reader, writer) = stream.split();
+        futures::future::ok(())
+    });
+
+
+    Ok(())
+}
+
+fn main() {
+
+    let conn_msg: Vec<Result<Line, io::Error>> = vec![
+        Ok(Line::from_str("USER a b c d")),
+        Ok(Line::from_str("NICK qjkxk")),
+        Ok(Line::from_str("JOIN #test")),
+    ];
+    let mut logs = Logs::new("/tmp/irc_logs");
+
+    let mut core = Core::new().unwrap();
+    //let addr = "irc.freenode.org:6667".to_socket_addrs().unwrap().next().unwrap();
+    //let addr = "irc.mozilla.org:6665".to_socket_addrs().unwrap().next().unwrap();
+    let addr = "0.0.0.0:12345".to_socket_addrs().unwrap().next().unwrap();
+
+
+    let stream = TcpStream::connect(&addr, &core.handle());
+    let listen = stream.and_then(|socket| {
+        let transport = PingPong::new(socket.framed(LineCodec));
+        let (sink, stream) = transport.split();
+        sink.send_all(stream::iter(conn_msg))
+            .and_then(|_| {
+                stream.for_each(|line| {
+                    println!("SAW: `{:?}`", line);
+                    if let Some((name,text)) = line.format_privmsg("mozilla") {
+                        logs.write(name,&text).unwrap();
+                    }
+                    futures::future::ok(())
+                })
+            })
+    });
+    core.run(listen).unwrap();
+}
 
