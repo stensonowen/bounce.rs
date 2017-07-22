@@ -3,7 +3,6 @@ use std::io::{self, Read};
 use std::fs::File;
 use rpassword;
 use toml;
-use slog;
 
 const DEFAULT_UTC: bool = false;
 const DEFAULT_TLS: bool = false;
@@ -59,10 +58,6 @@ pub struct Server {
     pub password: Option<String>,
     pub register: Option<String>,
     pub tls: bool,
-    pub log_path: Option<String>,
-    //pub do_log: bool,
-    pub logger: slog::Logger,
-
 }
 
 #[derive(Debug)]
@@ -81,7 +76,6 @@ impl ServerToml {
              alt_u: &Option<String>,
              alt_m: &Option<u8>, 
              alt_r: &Option<String>,
-             logger: &slog::Logger,
              ) -> Result<Server,String> {
         let server_pw = if self.password.unwrap_or(false) {
             let prompt = format!("Enter server password for {}: ", serv_name);
@@ -101,9 +95,6 @@ impl ServerToml {
         };
 
         Ok(Server {
-            logger: logger.new(o!("Name" => serv_name.to_owned(), 
-                                  "IP"   => self.addr.to_owned(), 
-                                  "Nick" => self.nick.to_owned())),
             nick: self.nick.or(alt_n.clone())
                 .ok_or(format!("`Nick` field missing from {}", serv_name))?,
             user: self.user.or(alt_u.clone())
@@ -117,14 +108,6 @@ impl ServerToml {
             password: server_pw,
             register: regis_pw,
             tls: self.tls.unwrap_or(DEFAULT_TLS),
-            //do_log: self.log.unwrap_or(DEFAULT_LOG),
-            //log_path: log_dir.to_owned(),
-            log_path: match self.log {
-                Some(true)          => Some(log_dir.to_owned()),
-                None if DEFAULT_LOG => Some(log_dir.to_owned()),
-                Some(false)         => None,
-                None                => None,
-            },
         })
     }
 }
@@ -135,21 +118,20 @@ fn build_servers(olds: HashMap<String,ServerToml>,
                  alt_mode: Option<u8>, 
                  alt_real: Option<String>,
                  log_dir: &str,
-                 logger: &slog::Logger,
                  ) -> Result<HashMap<String,Server>,String> {
     let mut servers = HashMap::new();
     for (name,serv) in olds {
-        let new = serv.build(&name, log_dir, &alt_nick, &alt_user, &alt_mode, &alt_real, logger)?;
+        let new = serv.build(&name, log_dir, &alt_nick, &alt_user, &alt_mode, &alt_real)?;
         servers.insert(name.to_string(),new);
     }
     Ok(servers)
 }
 
 impl ConfigToml {
-    fn build(self, log: &slog::Logger) -> Result<Config,String> {
+    fn build(self) -> Result<Config,String> {
         Ok(Config {
-            servers: build_servers(self.servers, self.nick, 
-                                   self.user, self.mode, self.realname, &self.logs_dir, log)?,
+            servers: build_servers(self.servers, self.nick, self.user, 
+                                   self.mode, self.realname, &self.logs_dir)?,
             logs_dir: self.logs_dir,
             timefmt: self.timefmt,
             utc: self.utc.unwrap_or(DEFAULT_UTC),
@@ -197,13 +179,13 @@ impl Server {
 }
 
 impl Config {
-    pub fn from(path: &str, log: &slog::Logger) -> Result<Config,ParseError> {
+    pub fn from(path: &str) -> Result<Config,ParseError> {
         use self::ParseError::*;
         let mut f = File::open(path).map_err(|e| ReadError(e))?;
         let mut s = String::new();
         f.read_to_string(&mut s).map_err(|e| ReadError(e))?;
         let config: ConfigToml = toml::from_str(&s).map_err(|e| ParseError(e))?;
-        Ok(config.build(log).map_err(|e| ResolveError(e))?)
+        Ok(config.build().map_err(|e| ResolveError(e))?)
     }
 }
 
