@@ -1,35 +1,43 @@
 # sample toml config file for bouncer
-# fields marked `optional` are the same as the default,
+# fields marked `default` are the same as the default,
 #  and can be omitted without changing anything
-# if a nick/user/realname is not supplied for a server,
-#  it will default to the global values.
+# fields marked `optional` do not have a default
+# if any values (nick, user, realname, tls, etc.) are 
+#  in both a global and local scope, the local is used
 #  Global values can be omitted if all servers have them.
 
-nick = "qjkxkcd_"
-user = "qjkxkcd"
-realname = "owen"
-logs_dir = "/tmp/irc_logs/"
-mode = 0                # optional
-utc_time = false        # optional
-#timefmt = "%H%m"
+nick = "qjkxkcd"        # required
+user = "qjkx"           # required
+mode = 0                # default
+realname = "owen"       # defaults to user
+nick_alt = "qjkxkcd_"   # optional
 
-[servers]
+logs_dir = "/tmp/logs/" # required
+
+utc = false             # default
+tls = false             # default
+timefmt = "%F %X%:z"    # default (rfc3339)
+
+[servers]               # required
 
     [servers.freenode]
-    addr = "irc.freenode.org"
+    addr = "irc.freenode.org"   # required
     tls = false                 # optional
-    password = false            # optional
-    nick = "qjkx_freenode"      # optional
+    password = false            # default
+    nick = "qjkxkcd"            # optional
     user = "qjkx"               # optional
+    mode = 0                    # optional
     realname = "owen"           # optional
-    chans = ["#test", "#flood"]
-    chan_keys = ["test_key", "flood_key"] # can be ommitted
-    log = true                  # optional
+    nick_alt = "qjkxkcd_"       # optional
+    chans = ["#flood", "#test"] # required
+    chan_keys = ["","test_key"] # optional
+    log = true                  # default
+    register = false            # default
 
     [servers.rpisec]
     addr = "irc.rpis.ec:6697"
-    tls = false                 # optional
-    password = false            # optional
+    tls = true
+    password = true
     chans = ["#chickengate"]
 
 
