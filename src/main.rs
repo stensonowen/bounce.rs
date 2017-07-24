@@ -10,19 +10,20 @@ extern crate rpassword;
 
 #[macro_use]
 extern crate serde_derive;
+extern crate docopt;
 extern crate toml;
 
 #[macro_use]
 extern crate log;
 
 use std::{io, str};
-use std::net::ToSocketAddrs;
 
 use futures::{future, stream, Future, Stream, Sink};
 use tokio_core::reactor::{Core, Handle};
 use tokio_core::net::TcpStream;
 use tokio_io::AsyncRead;
 
+pub mod args;
 pub mod logs;
 pub mod codec;
 pub mod config;
@@ -36,14 +37,15 @@ fn _server(srv_name: String, srv: Server, log_path: &str, handle: Handle) {
     // `NICK ../../../../dev/sda1`
     // TODO: stop passwords from leaking into log files (don't long conn msg)
     let mut logs = Logs::new(log_path);
-    let conn_msg: Vec<_> = srv.conn_msg();
+    //let conn_msg: Vec<_> = srv.conn_msg();
     //info!(srv.logger, "Initiating connection: {:?}", conn_msg);
-    let conn_lines: Vec<Result<Line, io::Error>> = conn_msg
-        .iter().map(|s| Ok(Line::from_str(s))).collect();
-    let addr = srv.get_addr().to_socket_addrs().unwrap().next().unwrap();
+    //let conn_lines: Vec<Result<Line, io::Error>> = conn_msg
+    //    .iter().map(|s| Ok(Line::from_str(s))).collect();
+    let conn_lines: Vec<io::Result<Line>> = vec![];
+    //let addr = srv.get_addr().to_socket_addrs().unwrap().next().unwrap();
     //info!(srv.logger, "Connecting to {} w/ tls={}", addr, srv.tls);
 
-    let stream = TcpStream::connect(&addr, &handle);
+    let stream = TcpStream::connect(&srv.addr, &handle);
     let listen = stream.and_then(move |socket| {
         let transport = PingPong::new(socket.framed(LineCodec));
         let (sink, stream) = transport.split();
@@ -60,6 +62,14 @@ fn _server(srv_name: String, srv: Server, log_path: &str, handle: Handle) {
             })
     }).map_err(|_| ());
     handle.spawn(listen);
+}
+
+fn main() {
+    info!("Parsing arguments");
+    let args: args::Args = docopt::Docopt::new(args::USAGE)
+        .and_then(|d| d.deserialize())
+        .unwrap_or_else(|e| e.exit());
+    println!("ARGS: {:?}", args);
 }
 
 fn _main() {
@@ -116,6 +126,7 @@ fn _main() {
 }
 
 
+/*
 use std::net::SocketAddr;
 use tokio_core::net::TcpListener;
 
@@ -168,3 +179,4 @@ fn main() {
     core.run(listen).unwrap();
 }
 
+*/
